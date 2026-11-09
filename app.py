@@ -31,6 +31,8 @@ if "lat" not in st.session_state:
     st.session_state["lat"] = 48.7758
 if "lon" not in st.session_state:
     st.session_state["lon"] = 9.1829
+if "preset" not in st.session_state:
+    st.session_state["preset"] = "Stuttgart – city centre"
 
 # if the user clicked on the map in the last run, use that point now
 # (this has to happen before the number inputs are created)
@@ -52,7 +54,8 @@ def preset_changed():
 
 st.sidebar.header("Location and period")
 
-st.sidebar.selectbox("Preset", list(PRESETS.keys()), index=1, key="preset", on_change=preset_changed)
+# no index here: the value comes from session state, set above or by a map click
+st.sidebar.selectbox("Preset", list(PRESETS.keys()), key="preset", on_change=preset_changed)
 lat = st.sidebar.number_input("Latitude", -80.0, 84.0, key="lat", format="%.5f")
 lon = st.sidebar.number_input("Longitude", -180.0, 180.0, key="lon", format="%.5f")
 st.sidebar.caption("Or click anywhere on the map.")
