@@ -13,6 +13,15 @@ location for 12 consecutive months and reports how the class composition changes
 
 Full technical report: [`docs/report/Sentinel1_LULC_Technical_Report.pdf`](docs/report/Sentinel1_LULC_Technical_Report.pdf) (Word version: [`.docx`](docs/report/Sentinel1_LULC_Technical_Report.docx))
 
+## Public links
+
+| Item | Link |
+|---|---|
+| Dataset | **DATASET LINK TO BE ADDED** |
+| Training code | [`notebooks/02_train_evaluate_unet.ipynb`](https://github.com/Mehatab1/DeepLearning/blob/main/notebooks/02_train_evaluate_unet.ipynb) · original V5 run: [`notebooks/archive/09_train_unet_v5_expanded_area.ipynb`](https://github.com/Mehatab1/DeepLearning/blob/main/notebooks/archive/09_train_unet_v5_expanded_area.ipynb) · model: [`src/model.py`](https://github.com/Mehatab1/DeepLearning/blob/main/src/model.py) |
+| Model weights | [`weights/best_unet_v5.pt`](https://github.com/Mehatab1/DeepLearning/blob/main/weights/best_unet_v5.pt) (7.5 MB) |
+| Prototype code | [`app.py`](https://github.com/Mehatab1/DeepLearning/blob/main/app.py) · [`run_lulc.py`](https://github.com/Mehatab1/DeepLearning/blob/main/run_lulc.py) · [`src/`](https://github.com/Mehatab1/DeepLearning/tree/main/src) |
+
 ## Key results
 
 | Evaluation (against ESA WorldCover 2021) | Pixel accuracy | mIoU |
