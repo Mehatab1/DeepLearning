@@ -1,0 +1,93 @@
+{
+  "baseline": {
+    "accuracy": 0.7189769980348186,
+    "mIoU": 0.47336523273367764
+  },
+  "feature_ablation": {
+    "Baseline": {
+      "accuracy": 0.719,
+      "mIoU": 0.4734,
+      "\u0394 mIoU": 0.0
+    },
+    "VV \u2192 median": {
+      "accuracy": 0.3261,
+      "mIoU": 0.1071,
+      "\u0394 mIoU": -0.3663
+    },
+    "VH \u2192 median": {
+      "accuracy": 0.4466,
+      "mIoU": 0.1815,
+      "\u0394 mIoU": -0.2918
+    },
+    "VV and VH \u2192 median": {
+      "accuracy": 0.176,
+      "mIoU": 0.0293,
+      "\u0394 mIoU": -0.444
+    },
+    "VV permuted": {
+      "accuracy": 0.3986,
+      "mIoU": 0.1571,
+      "\u0394 mIoU": -0.3163
+    },
+    "VH permuted": {
+      "accuracy": 0.4514,
+      "mIoU": 0.188,
+      "\u0394 mIoU": -0.2854
+    },
+    "Polarisation ratio removed": {
+      "accuracy": 0.5753,
+      "mIoU": 0.3249,
+      "\u0394 mIoU": -0.1485
+    },
+    "Spatial texture removed": {
+      "accuracy": 0.2159,
+      "mIoU": 0.0494,
+      "\u0394 mIoU": -0.4239
+    },
+    "Brightness removed": {
+      "accuracy": 0.6688,
+      "mIoU": 0.4331,
+      "\u0394 mIoU": -0.0403
+    },
+    "Noise \u03c3=0.1": {
+      "accuracy": 0.7144,
+      "mIoU": 0.4663,
+      "\u0394 mIoU": -0.0071
+    },
+    "Noise \u03c3=0.25": {
+      "accuracy": 0.6442,
+      "mIoU": 0.3952,
+      "\u0394 mIoU": -0.0781
+    },
+    "Noise \u03c3=0.5": {
+      "accuracy": 0.4989,
+      "mIoU": 0.2312,
+      "\u0394 mIoU": -0.2421
+    },
+    "Noise \u03c3=1.0": {
+      "accuracy": 0.4417,
+      "mIoU": 0.1511,
+      "\u0394 mIoU": -0.3223
+    }
+  },
+  "class_ablation_single": {
+    "Tree cover": {
+      "\u0394 mIoU": 0.0359
+    },
+    "Grassland": {
+      "\u0394 mIoU": 0.0162
+    },
+    "Cropland": {
+      "\u0394 mIoU": 0.0304
+    },
+    "Built-up": {
+      "\u0394 mIoU": 0.045
+    },
+    "Bare/sparse vegetation": {
+      "\u0394 mIoU": 0.0
+    },
+    "Permanent water": {
+      "\u0394 mIoU": 0.0008
+    }
+  }
+}
