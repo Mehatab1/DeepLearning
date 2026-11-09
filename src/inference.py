@@ -30,9 +30,11 @@ def read_radar(path):
 
 def fill_invalid(radar):
     # small gaps (e.g. at the swath edge) are filled with the median of the band
-    bad_pixels = np.isnan(radar[0]) | np.isnan(radar[1])
+    # NaN and +/- infinity both count as missing
+    bad_pixels = ~np.isfinite(radar[0]) | ~np.isfinite(radar[1])
     fraction = float(bad_pixels.mean())
 
+    # this also stops the case of a completely empty band (fraction would be 100 %)
     if fraction > MAX_INVALID_FRACTION:
         raise ValueError(
             str(round(fraction * 100)) + "% of pixels have no radar data; refusing to predict."
@@ -41,8 +43,9 @@ def fill_invalid(radar):
     if fraction > 0:
         radar = radar.copy()
         for band in range(2):
-            median_value = np.nanmedian(radar[band])
-            radar[band][np.isnan(radar[band])] = median_value
+            good = np.isfinite(radar[band])
+            median_value = np.median(radar[band][good])
+            radar[band][~good] = median_value
 
     return radar, fraction
 
@@ -52,8 +55,12 @@ def normalize(radar, checkpoint):
     medians = np.array(checkpoint["class_medians"], dtype=np.float32)
     iqr = np.array(checkpoint["class_iqr"], dtype=np.float32)
 
-    if iqr[0] == 0 or iqr[1] == 0:
-        raise ValueError("Checkpoint has a zero IQR normalisation value.")
+    if medians.shape != (2,) or iqr.shape != (2,):
+        raise ValueError("Checkpoint must have 2 median and 2 IQR values (VV, VH).")
+    if not np.all(np.isfinite(medians)) or not np.all(np.isfinite(iqr)):
+        raise ValueError("Checkpoint normalisation values are not finite.")
+    if np.any(iqr <= 0):
+        raise ValueError("Checkpoint IQR normalisation values must be positive.")
 
     normalized = np.zeros_like(radar)
     for band in range(2):
@@ -61,17 +68,36 @@ def normalize(radar, checkpoint):
     return normalized
 
 
-def predict_array(radar, model, checkpoint, patch_size=128, batch_size=16):
+# tiles overlap by half a tile and the class probabilities are averaged,
+# so there are no hard edges every 128 pixels. Set to 128 for the old non-overlapping tiles.
+TILE_STRIDE = 64
+
+
+def tile_positions(size, patch_size, stride):
+    # start positions so that tiles of patch_size cover 0..size
+    padded = patch_size
+    while padded < size:
+        padded += stride
+    return list(range(0, padded - patch_size + 1, stride)), padded
+
+
+def predict_array(radar, model, checkpoint, patch_size=128, batch_size=16, stride=None):
     # radar has shape (2, H, W) in dB, returns class ids 1-6 with shape (H, W)
+    if stride is None:
+        stride = TILE_STRIDE
+    if patch_size <= 0 or batch_size <= 0 or stride <= 0 or stride > patch_size:
+        raise ValueError("Need patch_size > 0, batch_size > 0 and 0 < stride <= patch_size.")
+    if radar.ndim != 3 or radar.shape[0] != 2 or radar.shape[1] == 0 or radar.shape[2] == 0:
+        raise ValueError("Radar array must have shape (2, H, W).")
+
     radar, invalid_fraction = fill_invalid(radar)
     x = normalize(radar, checkpoint)
 
     height = x.shape[1]
     width = x.shape[2]
 
-    # pad so height and width are multiples of 128
-    padded_h = int(np.ceil(height / patch_size)) * patch_size
-    padded_w = int(np.ceil(width / patch_size)) * patch_size
+    rows, padded_h = tile_positions(height, patch_size, stride)
+    cols, padded_w = tile_positions(width, patch_size, stride)
     pad_h = padded_h - height
     pad_w = padded_w - width
 
@@ -83,12 +109,13 @@ def predict_array(radar, model, checkpoint, patch_size=128, batch_size=16):
 
     # list of top-left corners of all tiles
     tiles = []
-    for row in range(0, padded_h, patch_size):
-        for col in range(0, padded_w, patch_size):
+    for row in rows:
+        for col in cols:
             tiles.append((row, col))
 
     device = next(model.parameters()).device
-    output = np.zeros((padded_h, padded_w), dtype=np.uint8)
+    prob_sum = np.zeros((6, padded_h, padded_w), dtype=np.float32)
+    counts = np.zeros((padded_h, padded_w), dtype=np.float32)
 
     model.eval()
     with torch.no_grad():
@@ -98,14 +125,17 @@ def predict_array(radar, model, checkpoint, patch_size=128, batch_size=16):
             batch = []
             for row, col in batch_tiles:
                 batch.append(x[:, row:row + patch_size, col:col + patch_size])
-            batch = torch.from_numpy(np.array(batch)).to(device)
+            batch = torch.from_numpy(np.array(batch, dtype=np.float32)).to(device)
 
-            logits = model(batch)
-            pred = logits.argmax(dim=1).cpu().numpy().astype(np.uint8) + 1   # 0-5 -> 1-6
+            probs = torch.softmax(model(batch), dim=1).cpu().numpy()
 
             for j in range(len(batch_tiles)):
                 row, col = batch_tiles[j]
-                output[row:row + patch_size, col:col + patch_size] = pred[j]
+                prob_sum[:, row:row + patch_size, col:col + patch_size] += probs[j]
+                counts[row:row + patch_size, col:col + patch_size] += 1
+
+    mean_probs = prob_sum / counts
+    output = mean_probs.argmax(axis=0).astype(np.uint8) + 1   # 0-5 -> 1-6
 
     prediction = output[:height, :width]
     return prediction, invalid_fraction

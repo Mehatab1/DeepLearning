@@ -136,67 +136,81 @@ def orbit_histograms(region, schedule, orbit_pass):
     return hists
 
 
-def select_acquisition(region, schedule):
-    # try to use the same orbit for all 12 months so the images are comparable
-    # order: descending one orbit, descending all orbits, ascending one orbit, ascending all orbits
-    months = [m["label"] for m in schedule]
-    missing = {}
+def best_common_orbit(hists, months):
+    # relative orbit that has scenes in every month (the one with most scenes), or None
+    common = set(hists[months[0]].keys())
+    for label in months:
+        common = common & set(hists[label].keys())
 
-    for orbit_pass in ["DESCENDING", "ASCENDING"]:
-        hists = orbit_histograms(region, schedule, orbit_pass)
-
-        missing[orbit_pass] = []
+    best_orbit = None
+    best_total = -1
+    for orbit in sorted(common):
+        total = 0
         for label in months:
-            if len(hists[label]) == 0:
-                missing[orbit_pass].append(label)
+            total += hists[label][orbit]
+        if total > best_total:
+            best_total = total
+            best_orbit = orbit
+    return best_orbit
 
-        # orbits that appear in every month
-        common = set(hists[months[0]].keys())
-        for label in months:
-            common = common & set(hists[label].keys())
 
-        if len(common) > 0:
-            # pick the orbit with the most scenes
-            best_orbit = None
-            best_total = -1
-            for orbit in common:
-                total = 0
-                for label in months:
-                    total += hists[label][orbit]
-                if total > best_total:
-                    best_total = total
-                    best_orbit = orbit
+def months_without_scenes(hists, months):
+    missing = []
+    for label in months:
+        if len(hists[label]) == 0:
+            missing.append(label)
+    return missing
 
+
+def choose_acquisition(hists_desc, hists_asc, months):
+    # one fixed orbit keeps the viewing geometry the same in every month,
+    # so it is preferred over mixing orbits, even if it means using ascending passes
+    # order: descending one orbit, ascending one orbit, descending mixed, ascending mixed
+    for orbit_pass, hists in [("DESCENDING", hists_desc), ("ASCENDING", hists_asc)]:
+        orbit = best_common_orbit(hists, months)
+        if orbit is not None:
             counts = {}
             for label in months:
-                counts[label] = hists[label][best_orbit]
-
+                counts[label] = hists[label][orbit]
             return {
                 "orbit_pass": orbit_pass,
-                "relative_orbit": best_orbit,
+                "relative_orbit": orbit,
                 "scene_counts": counts,
-                "note": orbit_pass.lower() + " pass, relative orbit " + str(best_orbit),
+                "note": orbit_pass.lower() + " pass, relative orbit " + str(orbit),
             }
 
-        if len(missing[orbit_pass]) == 0:
+    for orbit_pass, hists in [("DESCENDING", hists_desc), ("ASCENDING", hists_asc)]:
+        if len(months_without_scenes(hists, months)) == 0:
             counts = {}
             for label in months:
                 counts[label] = sum(hists[label].values())
-
             return {
                 "orbit_pass": orbit_pass,
                 "relative_orbit": None,
                 "scene_counts": counts,
-                "note": orbit_pass.lower() + " pass, mixed relative orbits",
+                "note": orbit_pass.lower() + " pass, mixed relative orbits "
+                        "(viewing geometry may differ between months)",
             }
 
-    desc = ", ".join(missing["DESCENDING"]) or "none"
-    asc = ", ".join(missing["ASCENDING"]) or "none"
+    desc = ", ".join(months_without_scenes(hists_desc, months)) or "none"
+    asc = ", ".join(months_without_scenes(hists_asc, months)) or "none"
     raise RuntimeError(
         "No Sentinel-1 IW VV+VH scenes for some months at this location "
         "(descending missing: " + desc + "; ascending missing: " + asc + "). "
         "Pick a start month after the gap, ideally 2017 or later."
     )
+
+
+def select_acquisition(region, schedule):
+    months = [m["label"] for m in schedule]
+
+    hists_desc = orbit_histograms(region, schedule, "DESCENDING")
+    # most places have one descending orbit in every month, then one request is enough
+    if best_common_orbit(hists_desc, months) is not None:
+        return choose_acquisition(hists_desc, {}, months)
+
+    hists_asc = orbit_histograms(region, schedule, "ASCENDING")
+    return choose_acquisition(hists_desc, hists_asc, months)
 
 
 def monthly_composite(region, month, acquisition):

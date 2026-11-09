@@ -84,7 +84,8 @@ run_clicked = st.sidebar.button("Run analysis", type="primary", width="stretch")
 
 st.title("Sentinel-1 LULC Explorer")
 st.caption("Monthly land use / land cover from Sentinel-1 VV/VH radar only, "
-           "predicted by a U-Net trained on ESA WorldCover labels.")
+           "predicted by a U-Net trained on ESA WorldCover labels around Stuttgart. "
+           "Results outside south-west Germany have not been validated.")
 
 try:
     grid = create_utm_grid(lat, lon, int(area_km * 1000))

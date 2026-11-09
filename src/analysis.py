@@ -14,14 +14,16 @@ NAMES = [CLASS_NAMES[c] for c in CLASS_IDS]
 
 def make_stack(maps, months):
     # put the monthly maps into one array with shape (months, H, W)
+    if len(months) < 2:
+        raise ValueError("Need at least 2 months to calculate changes.")
     for m in months:
         if m not in maps:
             raise ValueError("Missing monthly map: " + m)
 
     stack = np.stack([np.asarray(maps[m]) for m in months])
 
-    if stack.ndim != 3:
-        raise ValueError("Monthly maps must be 2-D arrays of equal shape.")
+    if stack.ndim != 3 or stack.shape[1] == 0 or stack.shape[2] == 0:
+        raise ValueError("Monthly maps must be non-empty 2-D arrays of equal shape.")
 
     for value in np.unique(stack):
         if value not in CLASS_IDS:
