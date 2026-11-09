@@ -58,3 +58,9 @@ patches_v4
 patches_v5
 outputs
 monthly_inputs
+
+# symlinked data folders
+patches_v4
+patches_v5
+outputs
+monthly_inputs
