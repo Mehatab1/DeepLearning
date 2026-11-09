@@ -11,7 +11,7 @@ location for 12 consecutive months and reports how the class composition changes
 * **Prototype:** Streamlit app and CLI — latitude/longitude + start month → 12 maps, class shares, changes in
   percentage points
 
-Full technical report: [`docs/report/Sentinel1_LULC_Technical_Report.docx`](docs/report/Sentinel1_LULC_Technical_Report.docx)
+Full technical report: [`docs/report/Sentinel1_LULC_Technical_Report.pdf`](docs/report/Sentinel1_LULC_Technical_Report.pdf) (Word version: [`.docx`](docs/report/Sentinel1_LULC_Technical_Report.docx))
 
 ## Key results
 
@@ -206,7 +206,7 @@ Each run is written to `runs/<lat>_<lon>_<start>_<size>km/` (inputs, predictions
 | `results/` | `accuracy/`, `ablation/`, `figures/` — curated results used in this README and the report |
 | `scripts/` | `check_accuracy.py`, `package_dataset.py` |
 | `tests/` | Offline tests with synthetic rasters |
-| `docs/` | Technical report, screen-recording plan |
+| `docs/` | Technical report (PDF and DOCX), screen-recording plan |
 
 ## 9. Limitations and future work
 
