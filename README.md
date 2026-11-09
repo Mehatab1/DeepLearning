@@ -20,7 +20,6 @@ Classes: tree cover, grassland, cropland, built-up, bare/sparse vegetation, perm
 | Prototype notebook (full run, two cities) | `notebooks/03_prototype_run.ipynb` |
 | Prototype source | `app.py`, `run_lulc.py`, `src/` |
 | Trained weights | `weights/best_unet_v5.pt` |
-| Screen recording | **[link — add after recording](docs/RECORDING.md)** |
 
 ---
 
@@ -171,19 +170,6 @@ early summer.
 Training curves, confusion matrices and per-month scores are in notebook 02.
 
 ---
-
-## Limitations
-
-- WorldCover 2021 is one annual label used for every month of 2025–26, so monthly
-  "accuracy" is agreement with a static map, not monthly ground truth.
-- Bare/sparse vegetation is barely present around Stuttgart and is not learned.
-- Grassland and cropland are often confused with each other and with trees.
-- Month-to-month differences mix real change with seasonal radar effects
-  (soil moisture, crop growth, frozen ground, snow). Treat swings of a few pp in
-  stable areas as noise.
-- The model was trained around Stuttgart on descending passes. It runs anywhere
-  Sentinel-1 IW VV+VH exists (it falls back to ascending passes when needed),
-  but accuracy outside Central European landscapes is unknown.
 
 ## Repository layout
 
