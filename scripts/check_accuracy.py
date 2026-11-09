@@ -88,6 +88,8 @@ def plot_confusion(cm, title, path):
 
 
 def test_set_accuracy(test_path, out_dir):
+    out_dir = out_dir / "test_set"
+    out_dir.mkdir(parents=True, exist_ok=True)
     print("=== Part 1: held-out test set ===")
     print("File:", test_path)
 
@@ -115,8 +117,8 @@ def test_set_accuracy(test_path, out_dir):
     print(f"mIoU, all 6:    {table['IoU'].mean():.4f}  (same as notebook 02)")
     print(table.round(4).to_string())
 
-    table.to_csv(out_dir / "test_set_per_class.csv")
-    plot_confusion(cm, "Test set confusion matrix", out_dir / "test_set_confusion.png")
+    table.to_csv(out_dir / "per_class.csv")
+    plot_confusion(cm, "Test set confusion matrix", out_dir / "confusion.png")
 
     if months is not None:
         rows = []
@@ -127,10 +129,13 @@ def test_set_accuracy(test_path, out_dir):
         by_month = pd.DataFrame(rows).set_index("month")
         print("\nBy month:")
         print(by_month.round(4).to_string())
-        by_month.to_csv(out_dir / "test_set_by_month.csv")
+        by_month.to_csv(out_dir / "by_month.csv")
 
 
 def location_accuracy(lat, lon, start, area_km, project, out_dir):
+    # one folder per location, so runs for different places do not overwrite each other
+    out_dir = out_dir / pipeline.run_name(lat, lon, start, area_km)
+    out_dir.mkdir(parents=True, exist_ok=True)
     print(f"\n=== Part 2: prototype run at {lat}, {lon}, start {start} ===")
 
     run = pipeline.run(lat, lon, start, area_km=area_km, ee_project=project)
@@ -163,9 +168,9 @@ def location_accuracy(lat, lon, start, area_km, project, out_dir):
     print(f"\nAll 12 months together: accuracy {accuracy:.4f}, mIoU {miou:.4f}")
     print(table.round(4).to_string())
 
-    by_month.to_csv(out_dir / "location_by_month.csv")
-    table.to_csv(out_dir / "location_per_class.csv")
-    plot_confusion(total_cm, "Prototype run vs WorldCover (12 months)", out_dir / "location_confusion.png")
+    by_month.to_csv(out_dir / "by_month.csv")
+    table.to_csv(out_dir / "per_class.csv")
+    plot_confusion(total_cm, "Prototype run vs WorldCover (12 months)", out_dir / "confusion.png")
 
 
 parser = argparse.ArgumentParser()
@@ -179,8 +184,8 @@ parser.add_argument("--skip-test-set", action="store_true")
 parser.add_argument("--skip-location", action="store_true")
 args = parser.parse_args()
 
-out_dir = PROJECT_DIR / "accuracy_check"
-out_dir.mkdir(exist_ok=True)
+out_dir = PROJECT_DIR / "results" / "accuracy"
+out_dir.mkdir(parents=True, exist_ok=True)
 
 if not args.skip_test_set:
     if Path(args.test_file).exists():
