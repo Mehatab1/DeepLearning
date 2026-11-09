@@ -1,218 +1,130 @@
-# Sentinel-1 LULC
+# Sentinel-1 LULC Mapper
 
-Monthly land use / land cover (LULC) maps from Sentinel-1 radar only.
+Monthly land use / land cover (LULC) segmentation from **Sentinel-1 radar alone**, with a prototype that maps any
+location for 12 consecutive months and reports how the class composition changes.
 
-You give a location (latitude, longitude) and a start month. The prototype downloads
-12 monthly Sentinel-1 VV/VH composites from Google Earth Engine, runs a U-Net trained
-on ESA WorldCover labels, and returns:
+* **Input:** Sentinel-1 IW GRD, VV and VH backscatter (dB), monthly median composites at 10 m
+* **Labels:** ESA WorldCover 2021, remapped to 6 classes — tree cover, grassland, cropland, built-up,
+  bare/sparse vegetation, permanent water
+* **Model:** U-Net (1.94 M parameters), PyTorch
+* **Study area:** Stuttgart, Germany (training, validation and test locations are spatially separated)
+* **Prototype:** Streamlit app and CLI — latitude/longitude + start month → 12 maps, class shares, changes in
+  percentage points
 
-- 12 monthly LULC maps (GeoTIFF, figure and GIF)
-- the share of the area covered by each class for every month (%)
-- the month-to-month change of each class in percentage points (pp)
-- the total change from the first to the last month in percentage points
+Full technical report: [`docs/report/Sentinel1_LULC_Technical_Report.pdf`](docs/report/Sentinel1_LULC_Technical_Report.pdf) (Word version: [`.docx`](docs/report/Sentinel1_LULC_Technical_Report.docx))
 
-Classes: tree cover, grassland, cropland, built-up, bare/sparse vegetation, permanent water.
+## Key results
 
-## Deliverables
+| Evaluation (against ESA WorldCover 2021) | Pixel accuracy | mIoU |
+|---|---:|---:|
+| Validation, best checkpoint (epoch 6) | 0.847 | 0.545 |
+| **Held-out test set** (27 locations × 12 months) | **0.719** | **0.473** |
+| Same test predictions, 4 classes (grass + crop + bare merged) | 0.770 | 0.643 |
+| Prototype run, south-west of Stuttgart (5 km × 5 km, 12 months) | 0.911 | 0.411 |
 
-| Item | Location |
+Test IoU per class: water 0.68 · cropland 0.66 · built-up 0.63 · tree cover 0.54 · grassland 0.33 · bare/sparse 0.00.
+The merged-class row re-scores the same predictions; it is not a different model (see [Ablation](#ablation-study)).
+
+## 1. Background and objectives
+
+Optical land-cover products need cloud-free scenes, which makes reliable *monthly* maps difficult in cloudy regions
+and seasons. C-band synthetic aperture radar (SAR) images the surface regardless of cloud and daylight, but its
+signal depends on surface roughness, geometry and moisture rather than colour, so classes that look different in
+optical images can look alike to radar.
+
+The project asks how far a compact segmentation network can get with radar as the only input. Objectives:
+
+1. Build a labelled dataset of Sentinel-1 VV/VH patches with WorldCover labels.
+2. Train and evaluate a U-Net on spatially held-out locations.
+3. Build a prototype that, for any location and start month, produces 12 monthly maps, the share of each class per
+   month, the month-to-month change and the total change (both in percentage points).
+4. Analyse which inputs and class pairs limit the model (ablation study).
+
+## 2. Data
+
+| Item | Value |
 |---|---|
-| Dataset | **[download link](ADD_DATASET_LINK)** (see [Dataset](#dataset)) |
-| Data collection notebook | `notebooks/01_data_collection.ipynb` |
-| Training notebook (results and training curves) | `notebooks/02_train_evaluate_unet.ipynb` |
-| Prototype notebook (full run, two cities) | `notebooks/03_prototype_run.ipynb` |
-| Ablation study (feature and class ablation) | `notebooks/04_ablation_study.ipynb`, results in `ablation/` |
-| Prototype source code | `app.py`, `run_lulc.py`, `src/` |
-| Trained model weights | `weights/best_unet_v5.pt` |
-| Screen recording (Stuttgart, full run) | **[video link](ADD_VIDEO_LINK)** |
+| Radar | `COPERNICUS/S1_GRD` (Earth Engine): IW mode, VV + VH in dB, descending pass |
+| Compositing | Monthly median, October 2025 – September 2026 |
+| Labels | `ESA/WorldCover/v200` (2021): 10 → tree, 30 → grassland, 40 → cropland, 50 → built-up, 60 → bare/sparse, 80 → water; other codes → 255 (ignored) |
+| Grid | 10 m, UTM zone 32N (EPSG:32632), 128 × 128 px patches (1.28 km) |
+| Study area | Stuttgart core (≈ 20 km × 20 km) plus an outer ring used for extra training locations |
+| Training | 8,280 patches = 690 locations (90 original + 600 outer ring) × 12 months |
+| Validation | 324 patches = 27 locations × 12 months, all pixels labelled |
+| Test | 324 patches = 27 locations × 12 months, all pixels labelled |
 
----
+Validation and test locations come from the Stuttgart core and are disjoint from the training locations. The test
+set is dominated by tree cover (34.7 %), built-up (31.3 %), cropland (17.6 %) and grassland (14.3 %); water is 2.0 %
+and bare/sparse only 0.09 %.
 
-## Setup
+**Dataset download:** _link to be added_ (`python scripts/package_dataset.py` builds the archive with a SHA-256
+manifest). `notebooks/01_data_collection.ipynb` documents how to rebuild an equivalent dataset from Earth Engine; it
+is a reconstruction — the original data-preparation notebooks that produced `train_v5.npz` are not in the repository.
 
-Python 3.10 to 3.12.
+## 3. Preprocessing and features
 
-```bash
-git clone https://github.com/Mehatab1/sentinel1-lulc.git
-cd sentinel1-lulc
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
+* **Inputs are the two backscatter channels only.** No hand-crafted features (indices, texture measures, ratios) are
+  added; the network learns spatial and cross-polarisation features itself.
+* **Normalisation:** per band, (dB − median) / IQR with training-set statistics stored in the checkpoint —
+  VV: median −9.04 dB, IQR 3.97 dB; VH: median −15.39 dB, IQR 4.47 dB.
+* **Missing pixels** (NaN, ±∞, −9999) are filled with the band median; a month with more than 50 % missing pixels is
+  not predicted.
+* **Orbit consistency (prototype):** all 12 months use one relative orbit where possible, so changes are not caused by
+  a different viewing angle. Fallback order: one descending orbit → one ascending orbit → mixed descending → mixed
+  ascending.
 
-A GPU is not needed for the prototype. Predicting a 2 km × 2 km area for 12 months
-takes a few seconds on CPU; most of the run time is the Earth Engine download.
+## 4. Model and training
 
-### Required accounts and keys
-
-Only one account is needed: **Google Earth Engine** with a Google Cloud project.
-No other API keys are required. Sentinel-1 and WorldCover are both read through Earth Engine.
-
-1. Sign up at <https://earthengine.google.com> and register a Cloud project for
-   Earth Engine (free for non-commercial use). Note the project ID.
-2. Log in once on the machine that runs the code:
-   ```bash
-   earthengine authenticate
-   ```
-   On a server or JupyterHub without a browser use
-   `python -c "import ee; ee.Authenticate(auth_mode='notebook')"`,
-   open the printed link, and paste the code back.
-3. Set the project ID:
-   ```bash
-   export EE_PROJECT=your-gcp-project-id
-   ```
-   (or copy `.env.example` to `.env`; the app also has a field for it)
-
-For headless use you can use a service account instead: give it the
-*Earth Engine Resource Viewer* role, download a JSON key, and set `EE_SERVICE_ACCOUNT`
-and `GOOGLE_APPLICATION_CREDENTIALS` (see `.env.example`).
-
-### Model weights
-
-`weights/best_unet_v5.pt` (about 8 MB) is included in the repository. It contains the
-model weights, the architecture settings and the VV/VH normalisation values, and is
-loaded by `src/model.py`. Notebook 02 writes a new copy after retraining.
-
----
-
-## Running the prototype
-
-### Web app
-
-```bash
-streamlit run app.py
-```
-
-Then open <http://localhost:8501>.
-
-- Choose the location by **clicking on the map**, picking a preset city, or typing coordinates.
-- Choose the start month (2017-01 or later) and the area size (1–5 km).
-- Press **Run analysis**.
-
-The results are shown in four tabs: monthly maps, class share per month, change (pp),
-and a download of all outputs as a zip.
-
-When running on a remote server (e.g. JupyterHub), the port has to be forwarded.
-One option is a Cloudflare quick tunnel:
-
-```bash
-nohup streamlit run app.py --server.port 8501 --server.headless true \
-  --server.enableCORS false --server.enableXsrfProtection false > streamlit.log 2>&1 &
-cloudflared tunnel --url http://localhost:8501 --protocol http2
-```
-
-and open the printed `https://....trycloudflare.com` link.
-
-### Command line
-
-```bash
-python run_lulc.py --lat 48.7758 --lon 9.1829 --start 2025-10 --area-km 2
-```
-
-### Notebook
-
-`notebooks/03_prototype_run.ipynb` runs the same pipeline for Stuttgart and Frankfurt
-and shows all tables and figures.
-
-### Output files
-
-Each run is saved in `runs/<lat>_<lon>_<start>_<size>km/`:
-
-```
-inputs/        s1_YYYY-MM.tif      monthly Sentinel-1 VV/VH median composites (dB)
-predictions/   lulc_YYYY-MM.tif    predicted class ids 1-6, same grid
-tables/        class_percentages_by_month.csv
-               month_to_month_change_pp.csv
-               total_change_first_to_last_pp.csv
-               transition_matrix_first_to_last_pixels.csv
-figures/       lulc_12_months.png / .gif, class_composition.png,
-               month_to_month_change_pp.png, total_change_pp.png, change_maps.png
-run_metadata.json
-```
-
-Downloaded inputs are reused if the same location and period is run again. Every input
-image (new or reused) is checked before use: it must open as a 2-band GeoTIFF with the
-expected CRS, 10 m pixels and the same top-left corner as the analysis grid. A broken
-cached file is downloaded again; a bad download stops the run with a clear message.
-
-### Processing details
-
-- **Orbit choice.** All 12 months should come from the same viewing geometry, otherwise
-  part of the month-to-month change would come from the radar angle instead of the land.
-  The order is: one descending relative orbit present in every month → one ascending
-  relative orbit → mixed descending orbits → mixed ascending orbits. The choice is
-  shown in the app and saved in `run_metadata.json`.
-- **Missing pixels.** NaN and ±infinity are treated as missing and filled with the band
-  median. If more than half of the image is missing, that month is not predicted.
-- **Tiling.** The model works on 128 × 128 tiles. Tiles overlap by 64 pixels and the
-  class probabilities are averaged, which avoids visible seams every 1.28 km.
-  (`TILE_STRIDE` in `src/inference.py`; 128 gives non-overlapping tiles.)
-
-### How the numbers are calculated
-
-For month *m* and class *c*:
-
-- share(*m*, *c*) = pixels of class *c* / all pixels × 100
-- month-to-month change = share(*m*, *c*) − share(*m*−1, *c*), in percentage points
-- total change = share(last month, *c*) − share(first month, *c*), in percentage points
-
-The changes of all classes add up to zero for each period. The column
-`Pixels changed (%)` is the share of pixels whose class differs from the previous
-month (gross change). It can be large even when the net pp changes are small.
-
----
-
-## Dataset
-
-**Download:** [ADD_DATASET_LINK](ADD_DATASET_LINK) — size and sha256 are printed by
-`python scripts/package_dataset.py`.
-
-| File | Contents |
+| Setting | Value |
 |---|---|
-| `patches_v5/train_v5.npz` | 8,280 samples (690 locations × 12 months) |
-| `patches_v4/val_v4.npz` | spatially held-out validation locations × 12 months |
-| `patches_v4/test_v4.npz` | 324 samples (27 locations × 12 months) |
-| `monthly_inputs/` | 12 Sentinel-1 composites of the 20 km Stuttgart area (2001 × 2001 px) |
+| Architecture | U-Net, 4 encoder/decoder levels, 16 base channels, batch norm, skip connections |
+| Parameters | 1,942,518 |
+| Input / output | 2 × 128 × 128 → 6 × 128 × 128 |
+| Loss | Weighted cross-entropy, weights 0.48 (tree, grass, crop, built) · 2.398 (bare) · 1.684 (water), ignore index 255 |
+| Sampling | Patches with ≥ 100 bare or water pixels drawn twice as often |
+| Optimiser | AdamW, learning rate 1e-3, weight decay 1e-4, no scheduler |
+| Batch size / epochs | 4 / 30, best checkpoint by validation mIoU (epoch 6) |
+| Seed / hardware | 42 / single CUDA GPU |
 
-Each `.npz` file contains `X` (VV and VH, normalised, shape N × 2 × 128 × 128),
-`y` (class ids 1–6, 255 = ignore), `class_medians`, `class_iqr`, and `metadata`
-with the month of each sample.
+Metrics: pixel accuracy, per-class precision, recall and IoU, and mIoU (mean of the six class IoUs), computed from a
+confusion matrix over all labelled pixels.
 
-- **Input:** `COPERNICUS/S1_GRD`, IW mode, VV + VH in dB, monthly median of one
-  descending relative orbit, 10 m, UTM zone 32N, October 2025 – September 2026.
-- **Labels:** `ESA/WorldCover/v200` (2021): 10 → tree cover, 30 → grassland,
-  40 → cropland, 50 → built-up, 60 → bare/sparse, 80 → water. Shrubland, snow,
-  wetland, mangroves and moss are set to 255 and ignored.
-- **Split:** by location, so the same area never appears in two splits. Validation and
-  test come from the Stuttgart core; 600 extra training locations come from a ring
-  around it (V5).
+## 5. Workflow
 
-Rebuild the dataset from scratch with `notebooks/01_data_collection.ipynb`.
+```
+lat, lon, start month
+  └─ src/location.py   pixel-aligned UTM grid around the point (1–10 km square)
+  └─ src/gee.py        check coverage, choose orbit, 12 monthly VV/VH median composites → GeoTIFF
+  └─ src/pipeline.py   validate each GeoTIFF (CRS, pixel size, alignment) and reuse valid cached files
+  └─ src/inference.py  normalise, 128 px tiles with 64 px overlap, average class probabilities
+  └─ src/analysis.py   class shares, month-to-month and total change (pp), transitions, stability
+  └─ src/visualize.py  12-month map grid, GIF, charts
+```
 
----
+For month *m* and class *c*: share = pixels of *c* / all pixels × 100; month-to-month change = share(*m*) −
+share(*m*−1); total change = share(last) − share(first). Changes are in percentage points and sum to zero across
+classes.
 
-## Model and training
+## 6. Results
 
-- U-Net, 4 down/up levels, 16 base channels, batch norm, 1.94 M parameters
-- Input: 2 channels (VV, VH), 128 × 128 tiles; output: 6 classes
-- Normalisation per band: (dB − median) / IQR, values stored in the checkpoint
-- Loss: weighted cross-entropy (weights 0.48 for the four common classes, 2.40 bare, 1.68 water)
-- Patches with ≥ 100 bare or water pixels are sampled twice as often
-- AdamW (lr 1e-3, weight decay 1e-4), batch size 4, 30 epochs
-- Best checkpoint chosen by validation mIoU (epoch 6, validation mIoU 0.545)
+| Notebook / file | Content |
+|---|---|
+| [`02_train_evaluate_unet`](notebooks/02_train_evaluate_unet.ipynb) | Training, curves, validation and test evaluation |
+| [`03_prototype_run`](notebooks/03_prototype_run.ipynb) | Full prototype run for Stuttgart and Frankfurt |
+| [`04_ablation_study`](notebooks/04_ablation_study.ipynb) | Feature ablation, class removal, class merging (with outputs) |
+| [`results/accuracy/`](results/accuracy) | Test-set and per-location accuracy against WorldCover |
+| [`results/ablation/`](results/ablation) | Ablation tables and figures |
+| [`results/figures/`](results/figures) | 20 km Stuttgart run (from `notebooks/archive/10_v5_lulc_prototype.ipynb`) |
 
-## Results
+> Notebooks 01–03 are stored **without outputs**. The training history (`outputs/training_history_v5.json`) lives on
+> the lab server; re-run notebook 02 there to embed the training curves before submission.
 
-All scores compare the prediction with ESA WorldCover 2021. Pixels labelled 255 are
-not counted.
+<p align="center">
+  <img src="results/figures/stuttgart_20km_lulc_2025-10.png" width="48%" alt="Predicted LULC, Stuttgart 20 km, October 2025">
+  <img src="results/accuracy/test_set/confusion.png" width="44%" alt="Test-set confusion matrix">
+</p>
 
-- **Pixel accuracy** = correctly classified pixels / all labelled pixels
-- **IoU** per class = TP / (TP + FP + FN)
-- **mIoU** = mean of the six class IoUs
-
-### Held-out test set (27 locations × 12 months)
-
-Pixel accuracy **0.719**, mIoU **0.473**
+**Test set (per class).**
 
 | Class | IoU | Precision | Recall |
 |---|---:|---:|---:|
@@ -223,178 +135,102 @@ Pixel accuracy **0.719**, mIoU **0.473**
 | Bare/sparse vegetation | 0.000 | 0.000 | 0.000 |
 | Permanent water | 0.684 | 0.817 | 0.808 |
 
-By month, mIoU ranges from 0.455 (June) to 0.484 (December). The summer months are
-the hardest because growing vegetation changes the radar signal.
+Monthly test mIoU ranges from 0.455 (June) to 0.484 (April, with December almost equal); early summer is the hardest period.
 
-### Prototype runs (12 months, October 2025 – September 2026)
+**Full-area run, Stuttgart 20 km × 20 km (400.4 km², Oct 2025 → Sep 2026).** Tree cover 44.2 % → 39.7 %
+(−4.54 pp), grassland 5.9 % → 10.5 % (+4.58 pp), cropland 19.0 % → 17.0 % (−1.98 pp), built-up 29.9 % → 31.8 %
+(+1.86 pp); 13.6 % of pixels have a different class in the last month. Much of this swing is seasonal radar response
+rather than land conversion (see Limitations).
 
-| Area | Main classes in WorldCover | Accuracy | mIoU | Tree IoU | Built-up IoU |
-|---|---|---:|---:|---:|---:|
-| Stuttgart centre, 2 km × 2 km | 73 % built-up, 26 % trees | 0.791 | 0.202 | 0.29 | 0.78 |
-| Stuttgart centre, 5 km × 5 km | 52 % trees, 45 % built-up | 0.788 | 0.340 | 0.64 | 0.68 |
-| South-west of Stuttgart (48.69, 9.06), 5 km × 5 km | 84 % trees, 11 % built-up | 0.911 | 0.411 | 0.92 | 0.56 |
+**Prototype runs against WorldCover (12 months).** Stuttgart centre 2 km: accuracy 0.791, mIoU 0.202; Stuttgart
+centre 5 km: 0.788 / 0.340; south-west of Stuttgart 5 km: 0.911 / 0.411. Accuracy rises with the share of forest;
+mIoU for a single site is pulled down by classes with only a few pixels. These runs used non-overlapping tiles; only
+the south-west run is stored in `results/accuracy/`.
 
-Reproduce with:
+### Ablation study
 
-```bash
-python scripts/check_accuracy.py --project your-gcp-project-id
-python scripts/check_accuracy.py --project your-gcp-project-id --skip-test-set --lat 48.69 --lon 9.06 --area-km 5
-```
+All experiments change inputs or outputs of the trained model at test time (`notebooks/04`).
 
-### Observations
+| Experiment | Test mIoU | Δ mIoU |
+|---|---:|---:|
+| Baseline | 0.473 | — |
+| VV replaced by its median / VH replaced by its median | 0.107 / 0.182 | −0.366 / −0.292 |
+| Polarisation ratio removed (VH rebuilt from VV) | 0.325 | −0.148 |
+| Spatial texture removed / brightness removed | 0.049 / 0.433 | −0.424 / −0.040 |
+| Gaussian noise ≈ 1 dB / ≈ 2 dB | 0.395 / 0.231 | −0.078 / −0.242 |
 
-- Tree cover and built-up are mapped reliably when they cover large areas. Built-up
-  recall is 0.71–0.97 at all sites.
-- In the dense city centre, street trees and small parks are often predicted as
-  built-up (tree recall 0.31), because the radar return from nearby buildings dominates
-  at 10 m.
-- Grassland is weak everywhere (IoU about 0.3); it is confused with trees and cropland.
-- Water is sometimes predicted on smooth artificial surfaces such as roads and car
-  parks (precision 0.25 at the south-west site).
-- Bare/sparse vegetation is almost absent around Stuttgart and is not learned.
-- mIoU depends strongly on classes that cover only a few pixels in a given area, so
-  for single locations pixel accuracy and the IoU of the main classes are more
-  informative.
+* Both channels are needed; VV is slightly more important. Water fails if either channel is missing.
+* **Cropland is recognised through the VH/VV ratio**: removing it drops cropland IoU from 0.66 to 0.01.
+* Spatial context matters far more than absolute brightness.
+* The dominant confusion is **tree cover ↔ built-up** (merging them alone adds 12 points of accuracy); grassland is
+  confused with tree cover and cropland about equally. Merging grassland, cropland and bare/sparse gives a 4-class
+  scheme with mIoU 0.643 on the same predictions.
 
-## Ablation study
+## 7. Installation and usage
 
-`notebooks/04_ablation_study.ipynb` tests how much the trained model depends on each
-input feature and how the classes interact (feature ablation, class removal, class merging). Inputs or outputs are changed at test time
-and the scores are compared with the baseline on the held-out test set
-(accuracy 0.719, mIoU 0.473). Tables and figures are in `ablation/`.
-
-### Input features
-
-| Experiment | Accuracy | mIoU | Δ mIoU |
-|---|---:|---:|---:|
-| Baseline | 0.719 | 0.473 | — |
-| VV replaced by its median | 0.326 | 0.107 | −0.366 |
-| VH replaced by its median | 0.447 | 0.182 | −0.292 |
-| VV and VH replaced | 0.176 | 0.029 | −0.444 |
-| VV permuted between patches | 0.399 | 0.157 | −0.316 |
-| VH permuted between patches | 0.451 | 0.188 | −0.285 |
-| Polarisation ratio (VH − VV) removed | 0.575 | 0.325 | −0.148 |
-| Spatial texture removed (patch mean only) | 0.216 | 0.049 | −0.424 |
-| Brightness removed (patch mean subtracted) | 0.669 | 0.433 | −0.040 |
-| Gaussian noise σ = 0.1 (≈ 0.4 dB) | 0.714 | 0.466 | −0.007 |
-| Gaussian noise σ = 0.25 (≈ 1 dB) | 0.644 | 0.395 | −0.078 |
-| Gaussian noise σ = 0.5 (≈ 2 dB) | 0.499 | 0.231 | −0.242 |
-| Gaussian noise σ = 1.0 (≈ 4 dB) | 0.442 | 0.151 | −0.322 |
-
-- **Both channels are needed; VV is slightly more important.** Removing or permuting
-  VV costs more than doing the same to VH, but either one alone keeps less than 40 % of
-  the baseline mIoU. Water needs both: its IoU falls from 0.68 to about 0.02 when either
-  channel is removed.
-- **Cropland depends on the polarisation ratio.** With the VH/VV ratio removed, cropland
-  IoU drops from 0.66 to 0.01 while the other classes change by 0.10 or less.
-- **Spatial patterns matter more than absolute brightness.** Subtracting the patch mean
-  costs only 0.04 mIoU, flattening each patch to its mean costs 0.42. Part of the second
-  drop comes from the flat images being unlike anything seen in training, but together
-  the two results show the U-Net relies mainly on spatial context and relative contrast.
-- **Noise.** Below about 1 dB the model is stable. From about 2 dB cropland and grassland
-  collapse first; built-up and water are the most robust.
-
-### Classes
-
-A class is removed by not allowing the model to predict it; its pixels are left out of
-scoring and the remaining classes are compared on the same pixels.
-
-| Removed class | Its pixels are predicted as | Δ mIoU of the other classes |
-|---|---|---:|
-| Built-up | Tree cover 92 % | +0.045 (tree IoU +0.19) |
-| Tree cover | Built-up 48 %, grassland 42 % | +0.036 |
-| Cropland | Grassland 82 % | +0.030 |
-| Grassland | Tree cover 45 %, cropland 43 % | +0.016 |
-| Permanent water | Built-up 65 %, tree cover 28 % | +0.001 |
-| Bare/sparse vegetation | — (never predicted) | 0.000 |
-
-- Tree cover and built-up are the main confused pair, matching the errors in the
-  Stuttgart city-centre run.
-- Grassland sits between tree cover and cropland, which explains its low IoU.
-- Removing classes progressively (weakest first): without bare/sparse the mIoU of the
-  same predictions is 0.569, so about 0.10 of the gap to a "good" score is caused by
-  that one unlearned class. With only cropland, built-up and water left, the model
-  reaches 0.86 mIoU and 95 % accuracy.
-
-### Merging classes
-
-Groups of classes are merged in both the predictions and the labels and the scores are
-recalculated from the baseline confusion matrix. Errors between merged classes stop
-counting, so accuracy can only go up; the IoU of the merged class shows how strongly the
-classes are confused with each other.
-
-| Merge | Classes | Accuracy | mIoU | IoU of merged class |
-|---|---:|---:|---:|---:|
-| Baseline | 6 | 0.719 | 0.473 | — |
-| Grassland + Cropland | 5 | 0.770 | 0.514 | 0.72 |
-| Tree cover + Grassland | 5 | 0.773 | 0.518 | 0.62 |
-| Bare/sparse into Grassland | 5 | 0.719 | 0.568 | 0.33 |
-| Grassland + Cropland + Bare (low vegetation) | 4 | 0.770 | 0.643 | 0.72 |
-| Tree cover + Built-up | 5 | 0.839 | 0.504 | 0.85 |
-| All vegetation (Tree + Grass + Crop + Bare) | 3 | 0.842 | 0.700 | 0.78 |
-
-- Tree cover vs built-up is the largest single source of error: merging only these two
-  raises accuracy by 12 points, about as much as merging all four vegetation classes.
-- Grassland is confused with tree cover and with cropland about equally (+5 points
-  each). Merged with cropland it forms a reliable class (IoU 0.72 vs 0.33 alone).
-- Merging bare/sparse changes no predictions; the mIoU gain is only from removing a zero
-  from the average.
-- A 4-class legend (tree cover, low vegetation, built-up, water) reaches mIoU 0.64 with
-  meaningful classes and would be a sensible scheme for retraining.
-
-These are test-time ablations of the trained model: they measure dependence, not how
-well a model trained without a feature would do. Part C of the notebook (off by default)
-retrains VV-only and VH-only models for that comparison.
-
-## Limitations
-
-- WorldCover 2021 is a single annual map used as the label for every month of
-  2025–26. Monthly scores measure agreement with this static map, not monthly ground truth.
-- Month-to-month changes mix real land cover change with seasonal radar effects
-  (soil moisture, crop growth, frozen ground, snow). Changes of a few pp in stable
-  areas are mostly noise.
-- The model was trained around Stuttgart on descending passes and has only been
-  checked against WorldCover around Stuttgart. The prototype accepts any coordinates
-  with Sentinel-1 IW VV+VH data, but it is **not validated** for other regions;
-  results elsewhere, and on ascending passes, should be treated as indicative only.
-- Before 2017 Sentinel-1 coverage has gaps in some months, so the app offers start
-  months from 2017 onward.
-
-## Tests
+Python 3.10–3.12. A GPU is optional for the prototype.
 
 ```bash
-pytest -q
+git clone https://github.com/Mehatab1/DeepLearning.git sentinel1-lulc
+cd sentinel1-lulc
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+earthengine authenticate              # headless: python -c "import ee; ee.Authenticate(auth_mode='notebook')"
+export EE_PROJECT=your-gcp-project-id
+pytest -q                             # 16 offline tests, no Earth Engine needed
 ```
 
-The tests use fake radar images and an untrained model, so they run without Earth
-Engine or the real weights. `scripts/check_real_data.py` and `scripts/check_accuracy.py`
-run checks on real data.
+**Account:** Google Earth Engine with a Cloud project registered for Earth Engine (free for non-commercial use).
+No other keys are needed. A service account can be used instead (see `.env.example`).
 
-## Repository structure
+| Task | Command |
+|---|---|
+| Web app | `streamlit run app.py` — click on the map or type coordinates, choose start month (2017 or later) and area (1–5 km) |
+| Command line | `python run_lulc.py --lat 48.7758 --lon 9.1829 --start 2025-10 --area-km 2` |
+| Accuracy check | `python scripts/check_accuracy.py --project $EE_PROJECT` (test set + one location) |
+| Package dataset | `python scripts/package_dataset.py` |
+| Notebooks | `jupyter lab notebooks/` |
 
-```
-app.py                       Streamlit app
-run_lulc.py                  command line version
-src/
-  gee.py                     Earth Engine: months, orbit choice, composites, download
-  location.py                lat/lon -> UTM grid
-  model.py                   U-Net and checkpoint loading
-  inference.py               tiling, normalisation, filling gaps, prediction
-  analysis.py                class shares, pp changes, transitions
-  visualize.py               maps, charts, GIF
-  pipeline.py                full run, used by the app, CLI and notebook
-  classes.py                 class names and colours
-notebooks/
-  01_data_collection.ipynb
-  02_train_evaluate_unet.ipynb
-  03_prototype_run.ipynb
-  04_ablation_study.ipynb
-  archive/                   earlier exploration notebooks
-scripts/
-  package_dataset.py         zip the dataset for upload
-  check_real_data.py         compare results on real data
-  check_accuracy.py          accuracy against WorldCover
-tests/test_pipeline.py
-weights/best_unet_v5.pt
-docs/RECORDING.md            plan for the screen recording
-```
+On a remote server the app needs port forwarding, e.g. `cloudflared tunnel --url http://127.0.0.1:8501`.
+Each run is written to `runs/<lat>_<lon>_<start>_<size>km/` (inputs, predictions as GeoTIFF, CSV tables, figures).
+
+## 8. Repository structure
+
+| Path | Contents |
+|---|---|
+| `app.py`, `run_lulc.py` | Streamlit prototype and command-line interface |
+| `src/` | `gee` (Earth Engine), `location` (UTM grid), `model` (U-Net), `inference`, `analysis`, `visualize`, `pipeline`, `classes` |
+| `notebooks/` | `01` data collection · `02` training and evaluation · `03` prototype run · `04` ablation study |
+| `notebooks/archive/` | Original V5 notebooks: training run (`09`), 20 km prototype run (`10`), arbitrary-location development (`11`) |
+| `weights/best_unet_v5.pt` | Trained model with normalisation statistics |
+| `results/` | `accuracy/`, `ablation/`, `figures/` — curated results used in this README and the report |
+| `scripts/` | `check_accuracy.py`, `package_dataset.py` |
+| `tests/` | Offline tests with synthetic rasters |
+| `docs/` | Technical report (PDF and DOCX), screen-recording plan |
+
+## 9. Limitations and future work
+
+* **Static labels.** WorldCover 2021 is used as the label for every month of 2025–26; scores measure agreement with
+  that map, which itself contains errors, not monthly ground truth.
+* **Seasonal radar response.** Month-to-month changes mix real change with soil moisture, crop growth and leaf-on/off
+  effects; changes of a few percentage points in stable areas are mostly noise.
+* **Single region.** Trained and validated around Stuttgart only; results elsewhere and on ascending passes are
+  unvalidated.
+* **Rare and similar classes.** Bare/sparse is never predicted; grassland stays weak (IoU 0.33).
+* **Missing artefacts.** Training curves, notebook 01–03 outputs, the dataset link and the screen recording still
+  need to be added.
+
+Future work: retrain on the 4-class scheme suggested by the merging analysis, add multi-temporal input to separate
+seasonal effects from change, add locations from other landscapes, re-evaluate the prototype with overlapping tiles
+on more sites, and use more recent or independent reference data.
+
+## Submission checklist
+
+| Requirement | Location | Status |
+|---|---|---|
+| Dataset | download link | to be added |
+| Notebooks with results and training curves | `notebooks/` | 04 done; 02 and 03 need re-running with outputs |
+| Prototype source, README, requirements | `app.py`, `run_lulc.py`, `src/`, `requirements.txt` | done |
+| Trained weights | `weights/best_unet_v5.pt` | done |
+| Technical report | `docs/report/` | done |
+| Screen recording | link | to be added (plan in `docs/RECORDING.md`) |
