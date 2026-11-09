@@ -259,7 +259,7 @@ python scripts/check_accuracy.py --project your-gcp-project-id --skip-test-set -
 ## Ablation study
 
 `notebooks/04_ablation_study.ipynb` tests how much the trained model depends on each
-input feature and how the classes interact. Inputs or outputs are changed at test time
+input feature and how the classes interact (feature ablation, class removal, class merging). Inputs or outputs are changed at test time
 and the scores are compared with the baseline on the held-out test set
 (accuracy 0.719, mIoU 0.473). Tables and figures are in `ablation/`.
 
@@ -315,6 +315,32 @@ scoring and the remaining classes are compared on the same pixels.
   same predictions is 0.569, so about 0.10 of the gap to a "good" score is caused by
   that one unlearned class. With only cropland, built-up and water left, the model
   reaches 0.86 mIoU and 95 % accuracy.
+
+### Merging classes
+
+Groups of classes are merged in both the predictions and the labels and the scores are
+recalculated from the baseline confusion matrix. Errors between merged classes stop
+counting, so accuracy can only go up; the IoU of the merged class shows how strongly the
+classes are confused with each other.
+
+| Merge | Classes | Accuracy | mIoU | IoU of merged class |
+|---|---:|---:|---:|---:|
+| Baseline | 6 | 0.719 | 0.473 | — |
+| Grassland + Cropland | 5 | 0.770 | 0.514 | 0.72 |
+| Tree cover + Grassland | 5 | 0.773 | 0.518 | 0.62 |
+| Bare/sparse into Grassland | 5 | 0.719 | 0.568 | 0.33 |
+| Grassland + Cropland + Bare (low vegetation) | 4 | 0.770 | 0.643 | 0.72 |
+| Tree cover + Built-up | 5 | 0.839 | 0.504 | 0.85 |
+| All vegetation (Tree + Grass + Crop + Bare) | 3 | 0.842 | 0.700 | 0.78 |
+
+- Tree cover vs built-up is the largest single source of error: merging only these two
+  raises accuracy by 12 points, about as much as merging all four vegetation classes.
+- Grassland is confused with tree cover and with cropland about equally (+5 points
+  each). Merged with cropland it forms a reliable class (IoU 0.72 vs 0.33 alone).
+- Merging bare/sparse changes no predictions; the mIoU gain is only from removing a zero
+  from the average.
+- A 4-class legend (tree cover, low vegetation, built-up, water) reaches mIoU 0.64 with
+  meaningful classes and would be a sensible scheme for retraining.
 
 These are test-time ablations of the trained model: they measure dependence, not how
 well a model trained without a feature would do. Part C of the notebook (off by default)
