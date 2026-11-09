@@ -17,9 +17,10 @@ Full technical report: [`docs/report/Sentinel1_LULC_Technical_Report.pdf`](docs/
 
 | Item | Link |
 |---|---|
-| Dataset | **DATASET LINK TO BE ADDED** |
+| Dataset | [`sentinel1_lulc_dataset.zip`](https://data.data-lab.site/public/share/BzOjkZXxfHuXM46qbIJPIw) — training, validation and test patches + monthly Sentinel-1 composites |
 | Training code | [`notebooks/02_train_evaluate_unet.ipynb`](https://github.com/Mehatab1/DeepLearning/blob/main/notebooks/02_train_evaluate_unet.ipynb) · original V5 run: [`notebooks/archive/09_train_unet_v5_expanded_area.ipynb`](https://github.com/Mehatab1/DeepLearning/blob/main/notebooks/archive/09_train_unet_v5_expanded_area.ipynb) · model: [`src/model.py`](https://github.com/Mehatab1/DeepLearning/blob/main/src/model.py) |
 | Model weights | [`weights/best_unet_v5.pt`](https://github.com/Mehatab1/DeepLearning/blob/main/weights/best_unet_v5.pt) (7.5 MB) |
+| Screen recording | [Full prototype run (OneDrive)](https://srhk-my.sharepoint.com/:v:/g/personal/100007043_stud_srh-university_de/IQAHrfKDSDkQQ62AAKKDvzYuASTflErTu47L_zvtSCKh2Nk?e=rnJXTL) |
 | Prototype code | [`app.py`](https://github.com/Mehatab1/DeepLearning/blob/main/app.py) · [`run_lulc.py`](https://github.com/Mehatab1/DeepLearning/blob/main/run_lulc.py) · [`src/`](https://github.com/Mehatab1/DeepLearning/tree/main/src) |
 
 ## Key results
@@ -66,8 +67,8 @@ Validation and test locations come from the Stuttgart core and are disjoint from
 set is dominated by tree cover (34.7 %), built-up (31.3 %), cropland (17.6 %) and grassland (14.3 %); water is 2.0 %
 and bare/sparse only 0.09 %.
 
-**Dataset download:** _link to be added_ (`python scripts/package_dataset.py` builds the archive with a SHA-256
-manifest). `notebooks/01_data_collection.ipynb` documents how to rebuild an equivalent dataset from Earth Engine; it
+**Dataset download:** [https://data.data-lab.site/public/share/BzOjkZXxfHuXM46qbIJPIw](https://data.data-lab.site/public/share/BzOjkZXxfHuXM46qbIJPIw) (built with `python scripts/package_dataset.py`,
+which adds a SHA-256 manifest). `notebooks/01_data_collection.ipynb` documents how to rebuild an equivalent dataset from Earth Engine; it
 is a reconstruction — the original data-preparation notebooks that produced `train_v5.npz` are not in the repository.
 
 ## 3. Preprocessing and features
@@ -226,8 +227,7 @@ Each run is written to `runs/<lat>_<lon>_<start>_<size>km/` (inputs, predictions
 * **Single region.** Trained and validated around Stuttgart only; results elsewhere and on ascending passes are
   unvalidated.
 * **Rare and similar classes.** Bare/sparse is never predicted; grassland stays weak (IoU 0.33).
-* **Missing artefacts.** Training curves, notebook 01–03 outputs, the dataset link and the screen recording still
-  need to be added.
+* **Missing artefacts.** Training curves and the outputs of notebooks 01–03 still need to be added.
 
 Future work: retrain on the 4-class scheme suggested by the merging analysis, add multi-temporal input to separate
 seasonal effects from change, add locations from other landscapes, re-evaluate the prototype with overlapping tiles
@@ -237,9 +237,9 @@ on more sites, and use more recent or independent reference data.
 
 | Requirement | Location | Status |
 |---|---|---|
-| Dataset | download link | to be added |
+| Dataset | [download link](https://data.data-lab.site/public/share/BzOjkZXxfHuXM46qbIJPIw) | done |
 | Notebooks with results and training curves | `notebooks/` | 04 done; 02 and 03 need re-running with outputs |
 | Prototype source, README, requirements | `app.py`, `run_lulc.py`, `src/`, `requirements.txt` | done |
 | Trained weights | `weights/best_unet_v5.pt` | done |
 | Technical report | `docs/report/` | done |
-| Screen recording | link | to be added (plan in `docs/RECORDING.md`) |
+| Screen recording | [OneDrive](https://srhk-my.sharepoint.com/:v:/g/personal/100007043_stud_srh-university_de/IQAHrfKDSDkQQ62AAKKDvzYuASTflErTu47L_zvtSCKh2Nk?e=rnJXTL) | done |
