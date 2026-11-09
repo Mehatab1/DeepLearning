@@ -21,6 +21,7 @@ Classes: tree cover, grassland, cropland, built-up, bare/sparse vegetation, perm
 | Data collection notebook | `notebooks/01_data_collection.ipynb` |
 | Training notebook (results and training curves) | `notebooks/02_train_evaluate_unet.ipynb` |
 | Prototype notebook (full run, two cities) | `notebooks/03_prototype_run.ipynb` |
+| Ablation study (feature and class ablation) | `notebooks/04_ablation_study.ipynb`, results in `ablation/` |
 | Prototype source code | `app.py`, `run_lulc.py`, `src/` |
 | Trained model weights | `weights/best_unet_v5.pt` |
 | Screen recording (Stuttgart, full run) | **[video link](ADD_VIDEO_LINK)** |
@@ -255,6 +256,70 @@ python scripts/check_accuracy.py --project your-gcp-project-id --skip-test-set -
   for single locations pixel accuracy and the IoU of the main classes are more
   informative.
 
+## Ablation study
+
+`notebooks/04_ablation_study.ipynb` tests how much the trained model depends on each
+input feature and how the classes interact. Inputs or outputs are changed at test time
+and the scores are compared with the baseline on the held-out test set
+(accuracy 0.719, mIoU 0.473). Tables and figures are in `ablation/`.
+
+### Input features
+
+| Experiment | Accuracy | mIoU | Δ mIoU |
+|---|---:|---:|---:|
+| Baseline | 0.719 | 0.473 | — |
+| VV replaced by its median | 0.326 | 0.107 | −0.366 |
+| VH replaced by its median | 0.447 | 0.182 | −0.292 |
+| VV and VH replaced | 0.176 | 0.029 | −0.444 |
+| VV permuted between patches | 0.399 | 0.157 | −0.316 |
+| VH permuted between patches | 0.451 | 0.188 | −0.285 |
+| Polarisation ratio (VH − VV) removed | 0.575 | 0.325 | −0.148 |
+| Spatial texture removed (patch mean only) | 0.216 | 0.049 | −0.424 |
+| Brightness removed (patch mean subtracted) | 0.669 | 0.433 | −0.040 |
+| Gaussian noise σ = 0.1 (≈ 0.4 dB) | 0.714 | 0.466 | −0.007 |
+| Gaussian noise σ = 0.25 (≈ 1 dB) | 0.644 | 0.395 | −0.078 |
+| Gaussian noise σ = 0.5 (≈ 2 dB) | 0.499 | 0.231 | −0.242 |
+| Gaussian noise σ = 1.0 (≈ 4 dB) | 0.442 | 0.151 | −0.322 |
+
+- **Both channels are needed; VV is slightly more important.** Removing or permuting
+  VV costs more than doing the same to VH, but either one alone keeps less than 40 % of
+  the baseline mIoU. Water needs both: its IoU falls from 0.68 to about 0.02 when either
+  channel is removed.
+- **Cropland depends on the polarisation ratio.** With the VH/VV ratio removed, cropland
+  IoU drops from 0.66 to 0.01 while the other classes change by 0.10 or less.
+- **Spatial patterns matter more than absolute brightness.** Subtracting the patch mean
+  costs only 0.04 mIoU, flattening each patch to its mean costs 0.42. Part of the second
+  drop comes from the flat images being unlike anything seen in training, but together
+  the two results show the U-Net relies mainly on spatial context and relative contrast.
+- **Noise.** Below about 1 dB the model is stable. From about 2 dB cropland and grassland
+  collapse first; built-up and water are the most robust.
+
+### Classes
+
+A class is removed by not allowing the model to predict it; its pixels are left out of
+scoring and the remaining classes are compared on the same pixels.
+
+| Removed class | Its pixels are predicted as | Δ mIoU of the other classes |
+|---|---|---:|
+| Built-up | Tree cover 92 % | +0.045 (tree IoU +0.19) |
+| Tree cover | Built-up 48 %, grassland 42 % | +0.036 |
+| Cropland | Grassland 82 % | +0.030 |
+| Grassland | Tree cover 45 %, cropland 43 % | +0.016 |
+| Permanent water | Built-up 65 %, tree cover 28 % | +0.001 |
+| Bare/sparse vegetation | — (never predicted) | 0.000 |
+
+- Tree cover and built-up are the main confused pair, matching the errors in the
+  Stuttgart city-centre run.
+- Grassland sits between tree cover and cropland, which explains its low IoU.
+- Removing classes progressively (weakest first): without bare/sparse the mIoU of the
+  same predictions is 0.569, so about 0.10 of the gap to a "good" score is caused by
+  that one unlearned class. With only cropland, built-up and water left, the model
+  reaches 0.86 mIoU and 95 % accuracy.
+
+These are test-time ablations of the trained model: they measure dependence, not how
+well a model trained without a feature would do. Part C of the notebook (off by default)
+retrains VV-only and VH-only models for that comparison.
+
 ## Limitations
 
 - WorldCover 2021 is a single annual map used as the label for every month of
@@ -297,6 +362,7 @@ notebooks/
   01_data_collection.ipynb
   02_train_evaluate_unet.ipynb
   03_prototype_run.ipynb
+  04_ablation_study.ipynb
   archive/                   earlier exploration notebooks
 scripts/
   package_dataset.py         zip the dataset for upload
